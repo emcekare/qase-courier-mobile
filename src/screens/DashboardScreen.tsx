@@ -9,6 +9,9 @@ import {
   RefreshControl,
   Linking,
   Alert,
+  useWindowDimensions,
+  ScrollView,
+  SafeAreaView,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as SecureStore from 'expo-secure-store';
@@ -38,6 +41,8 @@ const SESSION_API_URL = 'http://192.168.1.117:3000/api/courier/session/current';
 const TOKEN_KEY = 'jwt_token';
 
 export default function DashboardScreen({ navigation }: any) {
+  const { width, height } = useWindowDimensions();
+
   // ── Statü State'leri ──
   const [currentStatus, setCurrentStatus] = useState<CourierStatus>(null);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
@@ -58,11 +63,10 @@ export default function DashboardScreen({ navigation }: any) {
       const date = new Date(dateStr);
       return date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
     }
-    return dateStr; // Sadece "09:30" olarak geliyorsa direkt döndürür
+    return dateStr;
   };
 
   // ── API İSTEKLERİ ──
-
   const fetchCurrentSession = useCallback(async () => {
     try {
       const token = await SecureStore.getItemAsync(TOKEN_KEY);
@@ -78,7 +82,7 @@ export default function DashboardScreen({ navigation }: any) {
         setSessionData(data?.session || data || null);
       }
     } catch {
-      // Özet panele hata bastırarak siparişi/akışı bozmayalım
+      // Sessiz hata
     }
   }, []);
 
@@ -128,13 +132,11 @@ export default function DashboardScreen({ navigation }: any) {
       });
 
       if (!response.ok) {
-        throw new Error('Durum güncellenirken hata oluştu. Lütfen tekrar deneyin.');
+        throw new Error('Durum güncellenirken hata oluştu.');
       }
 
-      // Başarılı (200 OK)
       setCurrentStatus(newStatus);
       
-      // Statü her güncellendiğinde hem API'yi hem Session Panelini tazele
       await fetchCurrentSession();
       if (newStatus === 'on_duty') {
         await fetchOrders();
@@ -144,7 +146,7 @@ export default function DashboardScreen({ navigation }: any) {
       }
       
     } catch (err: any) {
-      setError(err.message || 'Bağlantı hatası. Ağ bağlantınızı kontrol edin.');
+      setError(err.message || 'Bağlantı hatası.');
     } finally {
       setIsUpdating(false);
     }
@@ -168,19 +170,18 @@ export default function DashboardScreen({ navigation }: any) {
       });
 
       if (!response.ok) {
-        throw new Error('Sıraya girme işlemi başarısız. Lütfen tekrar deneyin.');
+        throw new Error('Sıraya girme işlemi başarısız.');
       }
 
-      await fetchCurrentSession(); // Kasa vs güncellenmesi için
+      await fetchCurrentSession(); 
       setIsWaitingInQueue(true);
     } catch (err: any) {
-      setError(err.message || 'Bağlantı hatası. Ağ bağlantınızı kontrol edin.');
+      setError(err.message || 'Bağlantı hatası.');
     } finally {
       setIsUpdating(false);
     }
   };
 
-  // ── GİZLİ SİMÜLASYON API (PAVO Uzun Basıldığında) ──
   const completeOrderSimulation = async (orderId: string | number) => {
     setIsUpdating(true);
     try {
@@ -189,17 +190,14 @@ export default function DashboardScreen({ navigation }: any) {
       
       const response = await fetch(url, {
         method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (response.ok) {
-        Alert.alert('Simülasyon Başarılı', 'Sipariş test modunda tamamlandı (200 OK).');
-        await fetchOrders(); // Siparişi düştükten sonra ekranı yenile
-        await fetchCurrentSession(); // Kasayı yenile
+        await fetchOrders(); 
+        await fetchCurrentSession(); 
       } else {
-        throw new Error('Siparişi düşürürken (Complete) hata oluştu.');
+        throw new Error('Siparişi düşürürken hata oluştu.');
       }
     } catch (err: any) {
       setError('Simülasyon başarısız: ' + err.message);
@@ -208,7 +206,6 @@ export default function DashboardScreen({ navigation }: any) {
     }
   };
 
-  // ── ETKİLEŞİMLER (EFFECTS) ──
   useEffect(() => {
     fetchCurrentSession();
     if (currentStatus === 'on_duty') {
@@ -227,8 +224,6 @@ export default function DashboardScreen({ navigation }: any) {
     setIsRefreshing(false);
   };
 
-  // ── DİĞER FONKSİYONLAR ──
-
   const handleLogout = async () => {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     navigation.replace('Login');
@@ -246,542 +241,452 @@ export default function DashboardScreen({ navigation }: any) {
 
   const handlePavoPayment = (order: Order) => {
     try {
-      // Android bazlı SendIntent ile Pavo/Pos Entegrasyonu eylemi gönderiyoruz
       Linking.sendIntent('com.pavo.ACTION_PAYMENT', [
         { key: 'amount', value: String(order.totalAmount) },
         { key: 'orderId', value: String(order.id) },
         { key: 'paymentType', value: order.paymentMethod }
       ]);
     } catch (e) {
-      Alert.alert('Hata', 'Pavo başlatılamadı. Android Linking entegrasyonunu kontrol ediniz.');
+      Alert.alert('Hata', 'Pavo başlatılamadı.');
     }
   };
 
-  const getOpacity = (status: CourierStatus) => {
-    if (currentStatus === null) return 1;
-    return currentStatus === status ? 1 : 0.4;
+  // ── RENDER FONKSİYONLARI (CONTEXTUAL UI) ──
+
+  const renderTopBar = () => {
+    if (!sessionData) return null;
+    return (
+      <View style={styles.topBar}>
+        <View style={styles.topBarStat}>
+          <Text style={styles.topBarLabel}>BAŞLANGIÇ</Text>
+          <Text style={styles.topBarValue}>{formatTime(sessionData.startTime)}</Text>
+        </View>
+        <View style={styles.topBarStat}>
+          <Text style={styles.topBarLabel}>PAKET</Text>
+          <Text style={[styles.topBarValue, { color: '#FFC107' }]}>{sessionData.totalDeliveries}</Text>
+        </View>
+        <View style={styles.topBarStat}>
+          <Text style={styles.topBarLabel}>NAKİT</Text>
+          <Text style={[styles.topBarValue, styles.cashColor]}>{sessionData.cashTotal}₺</Text>
+        </View>
+        <View style={styles.topBarStat}>
+          <Text style={styles.topBarLabel}>KART</Text>
+          <Text style={[styles.topBarValue, styles.creditColor]}>{sessionData.creditCardTotal}₺</Text>
+        </View>
+      </View>
+    );
   };
 
-  // ── RENDER (DİZİLİM) YARDIMCILARI ──
-
-  // Sipariş Kartı
-  const renderOrderCard = ({ item }: { item: Order }) => (
-    <View style={styles.orderCard}>
-      <Text style={styles.customerName}>{item.customerName}</Text>
-      
-      <Text style={styles.paymentInfo}>
-        {item.paymentMethod?.toUpperCase()} - {item.totalAmount} TL
-      </Text>
-      
-      <Text style={styles.addressText}>{item.deliveryAddress}</Text>
-
-      {/* Aksiyon Butonları (Yol Tarifi ve Altında Devasa Tahsilat Yap Butonu) */}
-      <View style={styles.actionsColumn}>
-        <TouchableOpacity 
-          style={[styles.mapButton, styles.actionButton]} 
-          onPress={() => openMaps(item)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.mapButtonText}>YOL TARİFİ AL</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={[styles.pavoButton, styles.actionButton]} 
-          onPress={() => handlePavoPayment(item)}
-          onLongPress={() => completeOrderSimulation(item.id)}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.pavoButtonText}>TAHSİLAT YAP</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  // Üst Kısım (Vardiya Paneli, Statüler vb.)
-  const renderHeader = () => (
-    <View style={styles.headerContainer}>
-      {/* Vardiya Özet Paneli (Top Bar) */}
-      {sessionData && (
-        <View style={styles.sessionPanel}>
-          <View style={styles.sessionTopRow}>
-            <Text style={styles.sessionBaseText}>Başlangıç: <Text style={styles.sessionBoldStr}>{formatTime(sessionData.startTime)}</Text></Text>
-            <Text style={styles.sessionBaseText}>Teslimat: <Text style={styles.sessionBoldStr}>{sessionData.totalDeliveries}</Text></Text>
-          </View>
-          <View style={styles.sessionBottomRow}>
-            <Text style={[styles.sessionMoneyText, styles.cashColor]}>Nakit: {sessionData.cashTotal || 0} TL</Text>
-            <Text style={[styles.sessionMoneyText, styles.creditColor]}>K. Kartı: {sessionData.creditCardTotal || 0} TL</Text>
-          </View>
-        </View>
-      )}
-
-      {/* Başlık */}
-      <View style={styles.headerBlock}>
-        <Text style={styles.headerTitle}>OPERASYON</Text>
-      </View>
-
-      {/* Hata Mesajı */}
-      {error !== '' && (
-        <View style={styles.errorBox}>
-          <Text style={styles.errorIcon}>⚠</Text>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      )}
-
-      {/* Loading Göstergesi */}
-      {isUpdating && (
-        <View style={styles.loadingBox}>
-          <ActivityIndicator size="large" color="#FFC107" />
-          <Text style={styles.loadingText}>SİSTEMLE EŞLEŞİLİYOR...</Text>
-        </View>
-      )}
-
-      {/* Statü Butonları Alanı */}
-      <View style={styles.buttonsContainer}>
-        <TouchableOpacity
-          style={[
-            styles.statusButton,
-            styles.onDutyButton,
-            { opacity: getOpacity('on_duty') },
-            currentStatus === 'on_duty' && styles.activeSelection,
-          ]}
-          onPress={() => updateStatus('on_duty')}
-          disabled={isUpdating}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.buttonText}>AKTİF</Text>
-          <Text style={styles.buttonSubText}>ÇALIŞIYOR</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.statusButton,
-            styles.onBreakButton,
-            { opacity: getOpacity('on_break') },
-            currentStatus === 'on_break' && styles.activeSelection,
-          ]}
-          onPress={() => updateStatus('on_break')}
-          disabled={isUpdating}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.buttonText}>MOLADA</Text>
-          <Text style={styles.buttonSubText}>DİNLENİYOR</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.statusButton,
-            styles.offDutyButton,
-            { opacity: getOpacity('off_duty') },
-            currentStatus === 'off_duty' && styles.activeSelection,
-          ]}
-          onPress={() => updateStatus('off_duty')}
-          disabled={isUpdating}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.buttonText}>PASİF</Text>
-          <Text style={styles.buttonSubText}>MESAİ DIŞI</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Aktif Siparişler Başlığı */}
-      {currentStatus === 'on_duty' && (
-        <View style={styles.ordersHeader}>
-          <Text style={styles.ordersTitle}>AKTİF SİPARİŞLER</Text>
-          <View style={styles.ordersDivider} />
-        </View>
-      )}
-    </View>
-  );
-
-  // Alt Kısım (Çıkış Yap Butonu)
-  const renderFooter = () => (
-    <View style={styles.footerContainer}>
+  const renderOffDutyContext = () => (
+    <View style={styles.fillCenter}>
       <TouchableOpacity 
-        style={styles.logoutButton} 
-        onPress={handleLogout}
+        style={styles.massiveGreenButton} 
+        onPress={() => updateStatus('on_duty')}
         disabled={isUpdating}
-        activeOpacity={0.7}
+        activeOpacity={0.8}
       >
-        <Text style={styles.logoutText}>ÇIKIŞ YAP</Text>
+        <Text style={styles.massiveButtonText}>AKTİF OL{'\n'}(MESAİYE BAŞLA)</Text>
+      </TouchableOpacity>
+      
+      <TouchableOpacity style={styles.logoutTrigger} onPress={handleLogout} activeOpacity={0.6}>
+        <Text style={styles.logoutTriggerText}>SİSTEMDEN ÇIKIŞ YAP</Text>
       </TouchableOpacity>
     </View>
   );
 
-  return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
-      <FlatList
-        data={orders}
-        keyExtractor={(item, index) => item.id ? String(item.id) : String(index)}
-        renderItem={renderOrderCard}
-        ListHeaderComponent={renderHeader}
-        ListFooterComponent={renderFooter}
-        contentContainerStyle={styles.flatListContent}
-        refreshControl={
-          <RefreshControl 
-            refreshing={isRefreshing} 
-            onRefresh={onRefresh} 
-            colors={['#FFC107']}
-            tintColor="#FFC107"
-          />
-        }
-        ListEmptyComponent={
-          currentStatus === 'on_duty' ? (
-            <View style={styles.emptyListContainer}>
-              {isWaitingInQueue ? (
-                <View style={styles.queuePanel}>
-                  <Text style={styles.queuePanelText}>KUYRUKTA BEKLENİYOR...{'\n'}AKTİF GÖREV BEKLENİYOR</Text>
-                </View>
-              ) : (
-                <>
-                  <Text style={styles.emptyText}>Henüz aktif sipariş bulunmuyor, sayfayı aşağı çekerek yenileyebilirsiniz.</Text>
-                  <TouchableOpacity
-                    style={styles.backToShopButton}
-                    onPress={handleBackToShop}
-                    disabled={isUpdating}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.backToShopButtonText}>DÜKKANA DÖNDÜM{'\n'}/ SIRAYA GİR</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          ) : null
-        }
-      />
+  const renderBreakContext = () => (
+    <View style={styles.fillCenter}>
+      <View style={styles.breakStatusBox}>
+        <Text style={styles.breakStatusText}>MOLA DURUMUNDASINIZ</Text>
+      </View>
+
+      <TouchableOpacity 
+        style={styles.massiveGreenButton} 
+        onPress={() => updateStatus('on_duty')}
+        disabled={isUpdating}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.massiveButtonText}>MESAİYE DÖN</Text>
+      </TouchableOpacity>
+      
+      <View style={styles.idleBottomRowContainer}>
+        <TouchableOpacity style={[styles.thinButton, styles.endShiftButtonColor]} onPress={() => updateStatus('off_duty')} disabled={isUpdating}>
+          <Text style={styles.thinButtonText}>MESAİYİ BİTİR</Text>
+        </TouchableOpacity>
+      </View>
     </View>
+  );
+
+  const renderIdleContext = () => (
+    <ScrollView 
+      contentContainerStyle={styles.idleScrollContent}
+      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#FFC107" />}
+    >
+      <View style={styles.idleCenter}>
+         {isWaitingInQueue ? (
+            <View style={styles.queuePanel}>
+              <Text style={styles.queuePanelText}>KUYRUKTA BEKLENİYOR...{'\n'}AKTİF GÖREV BEKLENİYOR</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.massiveBlueButton}
+              onPress={handleBackToShop}
+              disabled={isUpdating}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.massiveButtonText}>DÜKKANA DÖNDÜM{'\n'}/ SIRAYA GİR</Text>
+            </TouchableOpacity>
+          )}
+      </View>
+      
+      <View style={styles.idleBottomRowContainer}>
+        <TouchableOpacity style={[styles.thinButton, styles.breakButtonColor]} onPress={() => updateStatus('on_break')} disabled={isUpdating}>
+          <Text style={styles.thinButtonText}>MOLAYA GİR</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.thinButton, styles.endShiftButtonColor]} onPress={() => updateStatus('off_duty')} disabled={isUpdating}>
+          <Text style={styles.thinButtonText}>MESAİYİ BİTİR</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+
+  const renderActiveContext = () => (
+    <FlatList
+      data={orders}
+      keyExtractor={(item, index) => item.id ? String(item.id) : String(index)}
+      contentContainerStyle={styles.activeListContent}
+      refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#FFC107" />}
+      renderItem={({ item }) => (
+        <View style={[styles.activeOrderCard, { minHeight: height * 0.75 }]}>
+          <View style={styles.orderCardHeader}>
+             <Text style={styles.orderCustomerName}>{item.customerName}</Text>
+             <Text style={styles.orderPaymentInfo}>{item.paymentMethod?.toUpperCase()} - {item.totalAmount} TL</Text>
+          </View>
+          
+          <View style={styles.orderCardBody}>
+             <Text style={styles.orderAddressText}>{item.deliveryAddress}</Text>
+          </View>
+          
+          <View style={styles.orderCardFooter}>
+             <TouchableOpacity style={styles.mapButtonFlex} onPress={() => openMaps(item)}>
+               <Text style={styles.mapButtonText}>YOL TARİFİ AL</Text>
+             </TouchableOpacity>
+
+             <TouchableOpacity 
+                style={styles.pavoButtonFlex} 
+                onPress={() => handlePavoPayment(item)}
+                onLongPress={() => completeOrderSimulation(item.id)}
+             >
+               <Text style={styles.pavoButtonText}>TAHSİLAT YAP</Text>
+             </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    />
+  );
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar style="light" />
+      
+      {renderTopBar()}
+
+      {/* Global Alerts */}
+      {error !== '' && (
+        <View style={styles.globalAlert}>
+          <Text style={styles.globalAlertText}>{error}</Text>
+        </View>
+      )}
+      {isUpdating && (
+        <View style={styles.globalAlertWarning}>
+          <ActivityIndicator size="small" color="#1A1A1A" style={{marginRight: 10}}/>
+          <Text style={styles.globalAlertTextDark}>İşlem Yapılıyor...</Text>
+        </View>
+      )}
+
+      {/* Context Switcher */}
+      <View style={styles.contextualContainer}>
+        {(currentStatus === 'off_duty' || currentStatus === null) && renderOffDutyContext()}
+        {currentStatus === 'on_break' && renderBreakContext()}
+        {currentStatus === 'on_duty' && orders.length === 0 && renderIdleContext()}
+        {currentStatus === 'on_duty' && orders.length > 0 && renderActiveContext()}
+      </View>
+    </SafeAreaView>
   );
 }
 
-// ─── STİLLER ─────────────────────────────────────────────────────
+// ─── STİLLER (Responsive & Flexbox) ──────────────────────────────
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0D0D0D',
   },
-  flatListContent: {
-    paddingHorizontal: 24,
-    paddingTop: 60,
-    paddingBottom: 40,
-  },
-  
-  // ── Vardiya Özet Paneli ──
-  sessionPanel: {
-    backgroundColor: '#1E1E1E',
-    borderWidth: 2,
-    borderColor: '#333333',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 32, // Statü butonlarına mesafeli, okunaklı ayırım
-  },
-  sessionTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  sessionBaseText: {
-    color: '#AAAAAA',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  sessionBoldStr: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-  },
-  sessionBottomRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: 16,
-    borderTopWidth: 2,
-    borderTopColor: '#333333',
-  },
-  sessionMoneyText: {
-    fontSize: 20,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-  cashColor: {
-    color: '#00E676', // Canlı yeşil, yüksek okunabilirlik
-  },
-  creditColor: {
-    color: '#29B6F6', // Canlı açık mavi/camgöbeği
-  },
-
-  // ── Header Component ──
-  headerContainer: {
-    marginBottom: 10,
-  },
-  headerBlock: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  headerTitle: {
-    color: '#FFC107',
-    fontSize: 40,
-    fontWeight: '900',
-    letterSpacing: 4,
-  },
-
-  // ── Hata Mesajı ──
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#4A0000',
-    borderWidth: 2,
-    borderColor: '#D32F2F',
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    marginBottom: 20,
-  },
-  errorIcon: {
-    fontSize: 28,
-    color: '#FF5252',
-    marginRight: 12,
-  },
-  errorText: {
-    color: '#FF5252',
-    fontSize: 18,
-    fontWeight: '800',
+  contextualContainer: {
     flex: 1,
   },
+  
+  // ── Top Bar Özeti (Sabit ve Şık) ──
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#151515',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  topBarStat: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topBarLabel: {
+    color: '#888',
+    fontSize: 10,
+    fontWeight: '700',
+    marginBottom: 4,
+    letterSpacing: 1,
+  },
+  topBarValue: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  cashColor: { color: '#00E676' },
+  creditColor: { color: '#29B6F6' },
 
-  // ── Yükleniyor Uyarısı ──
-  loadingBox: {
+  // ── Global Uyarılar ──
+  globalAlert: {
+    backgroundColor: '#D32F2F',
+    padding: 10,
+    alignItems: 'center',
+  },
+  globalAlertText: { color: '#FFF', fontWeight: 'bold' },
+  globalAlertWarning: {
+    backgroundColor: '#FFC107',
+    padding: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1A1A1A',
-    borderRadius: 16,
-    paddingVertical: 16,
-    marginBottom: 20,
-    borderWidth: 2,
-    borderColor: '#FFC107',
   },
-  loadingText: {
-    color: '#FFC107',
-    fontSize: 18,
-    fontWeight: '800',
-    marginLeft: 16,
-    letterSpacing: 1,
-  },
+  globalAlertTextDark: { color: '#1A1A1A', fontWeight: 'bold', fontSize: 16 },
 
-  // ── Statü Butonları Alanı ──
-  buttonsContainer: {
+  // ── Off Duty Context ──
+  fillCenter: {
+    flex: 1,
     justifyContent: 'center',
-  },
-  statusButton: {
-    borderRadius: 24,
-    paddingVertical: 32,
     alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-    borderWidth: 4,
-    borderColor: 'transparent',
-    elevation: 8,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
+    paddingHorizontal: 24,
+    paddingBottom: 20,
   },
-  onDutyButton: {
-    backgroundColor: '#1B5E20',
-  },
-  onBreakButton: {
-    backgroundColor: '#E65100',
-  },
-  offDutyButton: {
-    backgroundColor: '#424242',
-  },
-  activeSelection: {
-    borderColor: '#FFFFFF', 
-    borderWidth: 6,
-    shadowColor: '#FFFFFF',
-    shadowOpacity: 0.8,
-    shadowRadius: 20,
-    transform: [{ scale: 1.02 }],
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 48,
-    fontWeight: '900',
-    letterSpacing: 4,
-  },
-  buttonSubText: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
-    marginTop: 8,
-    opacity: 0.9,
-    letterSpacing: 2,
-  },
-
-  // ── Aktif Siparişler Başlık ──
-  ordersHeader: {
+  logoutTrigger: {
+    padding: 20,
     marginTop: 40,
-    marginBottom: 10,
-    alignItems: 'center',
   },
-  ordersTitle: {
-    color: '#FFFFFF',
-    fontSize: 28,
-    fontWeight: '900',
-    letterSpacing: 3,
+  logoutTriggerText: {
+    color: '#666',
+    fontSize: 14,
+    fontWeight: 'bold',
+    letterSpacing: 2,
   },
-  ordersDivider: {
-    width: 60,
-    height: 4,
-    backgroundColor: '#1B5E20',
-    marginTop: 10,
-    borderRadius: 2,
+  
+  // ── Break Context Özel ──
+  breakStatusBox: {
+    marginBottom: 40,
+    padding: 16,
+    backgroundColor: '#3E2723',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#795548',
   },
-
-  // ── List Empty Durumu ──
-  emptyListContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 10,
-  },
-  emptyText: {
-    color: '#AAAAAA',
+  breakStatusText: {
+    color: '#FFB300',
     fontSize: 20,
-    textAlign: 'center',
-    marginBottom: 30,
-    fontWeight: '600',
-    lineHeight: 30,
-  },
-  backToShopButton: {
-    backgroundColor: '#0D47A1', // Göz alıcı koyu mavi
-    width: '100%',
-    borderRadius: 24,
-    paddingVertical: 40, // Devasa buton
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 4,
-    borderColor: '#1976D2',
-    elevation: 8,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    marginBottom: 40,
-  },
-  backToShopButtonText: {
-    color: '#FFFFFF',
-    fontSize: 32, // Devasa metin
     fontWeight: '900',
     letterSpacing: 2,
-    textAlign: 'center',
-    lineHeight: 46,
-  },
-  queuePanel: {
-    backgroundColor: '#1B5E20', // Askeri yeşil
-    width: '100%',
-    borderRadius: 24,
-    paddingVertical: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 4,
-    borderColor: '#2E7D32',
-    elevation: 8,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    marginBottom: 40,
-  },
-  queuePanelText: {
-    color: '#FFFFFF',
-    fontSize: 26,
-    fontWeight: '900',
-    letterSpacing: 2,
-    textAlign: 'center',
-    lineHeight: 40,
   },
 
-  // ── Sipariş Kartları (Military-Grade) ──
-  orderCard: {
+  // ── Idle Context ──
+  idleScrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingTop: 40,
+    paddingBottom: 30,
+  },
+  idleCenter: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  idleBottomRowContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginTop: 40,
+  },
+
+  // ── Sahada (Active) Context ──
+  activeListContent: {
+    flexGrow: 1,
+    padding: 16,
+  },
+  activeOrderCard: {
     backgroundColor: '#1E1E1E',
+    borderRadius: 24,
     borderWidth: 3,
     borderColor: '#333333',
-    borderRadius: 16,
     padding: 24,
-    marginTop: 24,
-    marginBottom: 32, // Altın Kurallar gereği siparişler arası büyük boşluk
+    marginBottom: 24,
+    flexDirection: 'column',
+    // Yükseklik dışarıdan minHeight ile dinamik ayarlanıyor (%75)
   },
-  customerName: {
+  orderCardHeader: {
+    marginBottom: 16,
+  },
+  orderCustomerName: {
     color: '#FFFFFF',
     fontSize: 32,
     fontWeight: '900',
     letterSpacing: 2,
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  paymentInfo: {
+  orderPaymentInfo: {
     color: '#00E676', 
     fontSize: 26,
     fontWeight: '900',
     letterSpacing: 1,
-    marginBottom: 16,
   },
-  addressText: {
+  orderCardBody: {
+    flex: 1, // Ekranın kalan boşluğunu esneterek adresin etrafında güvenli alan sağlar
+    justifyContent: 'center',
+  },
+  orderAddressText: {
     color: '#E0E0E0',
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '600',
-    lineHeight: 32,
-    marginBottom: 24,
+    lineHeight: 36,
   },
-  
-  // ── Aksiyon Butonları (Yol Tarifi ve Pavo - ALTA ALTA) ──
-  actionsColumn: {
+  orderCardFooter: {
+    marginTop: 16,
     flexDirection: 'column',
-    marginTop: 8,
   },
-  actionButton: {
+
+  // ── Dynamic & Devasa Butonlar ──
+  massiveGreenButton: {
     width: '100%',
-    borderRadius: 12,
-    paddingVertical: 24, // Eldivenle basılabilecek ekstra büyük yükseklik
+    flex: 0.5, // Ekranın yarısını kaplar
+    backgroundColor: '#1B5E20',
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 4,
+    borderColor: '#2E7D32',
+    elevation: 10,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+  },
+  massiveBlueButton: {
+    width: '100%',
+    flex: 0.5, // Ekranın yarısını kaplar
+    backgroundColor: '#0D47A1',
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 4,
+    borderColor: '#1976D2',
+    elevation: 10,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+  },
+  queuePanel: {
+    width: '100%',
+    flex: 0.5, // Ekranın yarısını kaplar
+    backgroundColor: '#1B5E20',
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 4,
+    borderColor: '#2E7D32',
+    elevation: 8,
+  },
+  massiveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 34,
+    fontWeight: '900',
+    letterSpacing: 2,
+    textAlign: 'center',
+    lineHeight: 48,
+  },
+  queuePanelText: {
+    color: '#FFFFFF',
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: 2,
+    textAlign: 'center',
+    lineHeight: 42,
+  },
+
+  // ── Alt Seçenek Butonları (İnce, Yan Yana) ──
+  thinButton: {
+    flex: 1, // Yan yana eşit yer kaplarlar
+    paddingVertical: 24, // Yeterli dokunma alanı ama kalın değil
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    marginHorizontal: 8,
+  },
+  breakButtonColor: {
+    backgroundColor: '#E65100',
+    borderColor: '#EF6C00',
+  },
+  endShiftButtonColor: {
+    backgroundColor: '#424242',
+    borderColor: '#616161',
+  },
+  thinButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+
+  // ── Sipariş Kartı Aksiyon Butonları ──
+  mapButtonFlex: {
+    width: '100%',
+    backgroundColor: '#1565C0',
+    paddingVertical: 24,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    elevation: 4,
     marginBottom: 16,
-  },
-  mapButton: {
-    backgroundColor: '#1565C0',
+    borderWidth: 2,
     borderColor: '#1E88E5',
+    elevation: 4,
   },
   mapButtonText: {
     color: '#FFFFFF',
-    fontSize: 24, // Artık tam genişlikte, fontu iyice büyütebiliriz
+    fontSize: 24,
     fontWeight: '900',
     letterSpacing: 2,
   },
-  pavoButton: {
-    backgroundColor: '#FFC107', // Amber / Sarı
-    borderColor: '#FFB300',
-    marginBottom: 0, // Son eleman olduğu için alt marja gerek yok
-  },
-  pavoButtonText: {
-    color: '#1A1A1A', // Yüksek kontrastlı siyah metin
-    fontSize: 26, // "TAHSİLAT" en önemli buton oldu
-    fontWeight: '900',
-    letterSpacing: 2,
-  },
-
-  // ── Footer Component (Çıkış Yap Butonu) ──
-  footerContainer: {
-    marginTop: 40,
-  },
-  logoutButton: {
-    backgroundColor: '#D32F2F', 
+  pavoButtonFlex: {
+    width: '100%',
+    backgroundColor: '#FFC107',
+    paddingVertical: 32, 
     borderRadius: 16,
-    paddingVertical: 26, 
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#B71C1C',
+    borderColor: '#FFB300',
+    elevation: 6,
   },
-  logoutText: {
-    color: '#FFFFFF',
-    fontSize: 26,
+  pavoButtonText: {
+    color: '#1A1A1A',
+    fontSize: 30,
     fontWeight: '900',
-    letterSpacing: 3,
+    letterSpacing: 2,
   },
 });
