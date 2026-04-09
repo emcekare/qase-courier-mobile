@@ -13,7 +13,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SecureStore from 'expo-secure-store';
 
 // ─── Sabitler ────────────────────────────────────────────────────
-const API_URL = 'http://192.168.1.117:3000/api/courier/login';
+const API_URL = `${process.env.EXPO_PUBLIC_API_URL}/courier/login`;
 const TOKEN_KEY = 'jwt_token';
 
 // ─── Login Ekranı ────────────────────────────────────────────────
@@ -65,12 +65,12 @@ export default function LoginScreen({ navigation }: any): React.JSX.Element {
 
       setIsSubmitting(false);
       setSuccessMessage('Giriş Başarılı');
-      
+
       // Başarı sonrası kısa süre bekleyip Dashboard'a yönlendir
       setTimeout(() => {
         navigation.replace('Dashboard');
       }, 500);
-      
+
     } catch {
       setError('Bağlantı hatası. Ağ bağlantınızı kontrol edin.');
       setIsSubmitting(false);
