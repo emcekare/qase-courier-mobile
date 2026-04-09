@@ -47,11 +47,11 @@ export default function LoginScreen({ navigation }: any): React.JSX.Element {
       });
 
       if (!response.ok) {
-        setError('Hatalı giriş. Bilgilerinizi kontrol edin.');
+        const errorData = await response.json().catch(() => ({}));
+        setError(`Vercel'in Yanıtı: [${response.status}] ${errorData.error || 'Gizli Hata'}`);
         setIsSubmitting(false);
         return;
       }
-
       const data = await response.json();
 
       if (!data.token) {
