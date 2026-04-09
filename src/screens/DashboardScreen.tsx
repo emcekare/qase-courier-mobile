@@ -35,9 +35,10 @@ interface CourierSession {
   creditCardTotal: number;
 }
 
-const STATUS_API_URL = 'http://192.168.1.117:3000/api/courier/status';
-const ORDERS_API_URL = 'http://192.168.1.117:3000/api/courier/orders';
-const SESSION_API_URL = 'http://192.168.1.117:3000/api/courier/session/current';
+const API_BASE = process.env.EXPO_PUBLIC_API_URL;
+const STATUS_API_URL = `${API_BASE}/courier/status`;
+const ORDERS_API_URL = `${API_BASE}/courier/orders`;
+const SESSION_API_URL = `${API_BASE}/courier/session/current`;
 const TOKEN_KEY = 'jwt_token';
 
 export default function DashboardScreen({ navigation }: any) {
@@ -136,7 +137,7 @@ export default function DashboardScreen({ navigation }: any) {
       }
 
       setCurrentStatus(newStatus);
-      
+
       await fetchCurrentSession();
       if (newStatus === 'on_duty') {
         await fetchOrders();
@@ -144,7 +145,7 @@ export default function DashboardScreen({ navigation }: any) {
         setOrders([]);
         setIsWaitingInQueue(false);
       }
-      
+
     } catch (err: any) {
       setError(err.message || 'Bağlantı hatası.');
     } finally {
@@ -173,7 +174,7 @@ export default function DashboardScreen({ navigation }: any) {
         throw new Error('Sıraya girme işlemi başarısız.');
       }
 
-      await fetchCurrentSession(); 
+      await fetchCurrentSession();
       setIsWaitingInQueue(true);
     } catch (err: any) {
       setError(err.message || 'Bağlantı hatası.');
@@ -186,16 +187,16 @@ export default function DashboardScreen({ navigation }: any) {
     setIsUpdating(true);
     try {
       const token = await SecureStore.getItemAsync(TOKEN_KEY);
-      const url = `http://192.168.1.117:3000/api/courier/orders/${orderId}/complete`;
-      
+      const url = `${process.env.EXPO_PUBLIC_API_URL}/courier/orders/${orderId}/complete`;
+
       const response = await fetch(url, {
         method: 'PATCH',
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (response.ok) {
-        await fetchOrders(); 
-        await fetchCurrentSession(); 
+        await fetchOrders();
+        await fetchCurrentSession();
       } else {
         throw new Error('Siparişi düşürürken hata oluştu.');
       }
@@ -231,10 +232,10 @@ export default function DashboardScreen({ navigation }: any) {
 
   const openMaps = (order: Order) => {
     if (order.latitude && order.longitude) {
-      const url = `https://www.google.com/maps/dir/?api=1&destination=${order.latitude},${order.longitude}`;
+      const url = `https://maps.google.com/?q=${order.latitude},${order.longitude}`;
       Linking.openURL(url);
     } else {
-      const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.deliveryAddress)}`;
+      const url = `https://maps.google.com/?q=${encodeURIComponent(order.deliveryAddress)}`;
       Linking.openURL(url);
     }
   };
@@ -279,15 +280,15 @@ export default function DashboardScreen({ navigation }: any) {
 
   const renderOffDutyContext = () => (
     <View style={styles.fillCenter}>
-      <TouchableOpacity 
-        style={styles.massiveGreenButton} 
+      <TouchableOpacity
+        style={styles.massiveGreenButton}
         onPress={() => updateStatus('on_duty')}
         disabled={isUpdating}
         activeOpacity={0.8}
       >
         <Text style={styles.massiveButtonText}>AKTİF OL{'\n'}(MESAİYE BAŞLA)</Text>
       </TouchableOpacity>
-      
+
       <TouchableOpacity style={styles.logoutTrigger} onPress={handleLogout} activeOpacity={0.6}>
         <Text style={styles.logoutTriggerText}>SİSTEMDEN ÇIKIŞ YAP</Text>
       </TouchableOpacity>
@@ -300,15 +301,15 @@ export default function DashboardScreen({ navigation }: any) {
         <Text style={styles.breakStatusText}>MOLA DURUMUNDASINIZ</Text>
       </View>
 
-      <TouchableOpacity 
-        style={styles.massiveGreenButton} 
+      <TouchableOpacity
+        style={styles.massiveGreenButton}
         onPress={() => updateStatus('on_duty')}
         disabled={isUpdating}
         activeOpacity={0.8}
       >
         <Text style={styles.massiveButtonText}>MESAİYE DÖN</Text>
       </TouchableOpacity>
-      
+
       <View style={styles.idleBottomRowContainer}>
         <TouchableOpacity style={[styles.thinButton, styles.endShiftButtonColor]} onPress={() => updateStatus('off_duty')} disabled={isUpdating}>
           <Text style={styles.thinButtonText}>MESAİYİ BİTİR</Text>
@@ -318,27 +319,27 @@ export default function DashboardScreen({ navigation }: any) {
   );
 
   const renderIdleContext = () => (
-    <ScrollView 
+    <ScrollView
       contentContainerStyle={styles.idleScrollContent}
       refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor="#FFC107" />}
     >
       <View style={styles.idleCenter}>
-         {isWaitingInQueue ? (
-            <View style={styles.queuePanel}>
-              <Text style={styles.queuePanelText}>KUYRUKTA BEKLENİYOR...{'\n'}AKTİF GÖREV BEKLENİYOR</Text>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.massiveBlueButton}
-              onPress={handleBackToShop}
-              disabled={isUpdating}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.massiveButtonText}>DÜKKANA DÖNDÜM{'\n'}/ SIRAYA GİR</Text>
-            </TouchableOpacity>
-          )}
+        {isWaitingInQueue ? (
+          <View style={styles.queuePanel}>
+            <Text style={styles.queuePanelText}>KUYRUKTA BEKLENİYOR...{'\n'}AKTİF GÖREV BEKLENİYOR</Text>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={styles.massiveBlueButton}
+            onPress={handleBackToShop}
+            disabled={isUpdating}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.massiveButtonText}>DÜKKANA DÖNDÜM{'\n'}/ SIRAYA GİR</Text>
+          </TouchableOpacity>
+        )}
       </View>
-      
+
       <View style={styles.idleBottomRowContainer}>
         <TouchableOpacity style={[styles.thinButton, styles.breakButtonColor]} onPress={() => updateStatus('on_break')} disabled={isUpdating}>
           <Text style={styles.thinButtonText}>MOLAYA GİR</Text>
@@ -359,26 +360,26 @@ export default function DashboardScreen({ navigation }: any) {
       renderItem={({ item }) => (
         <View style={[styles.activeOrderCard, { minHeight: height * 0.75 }]}>
           <View style={styles.orderCardHeader}>
-             <Text style={styles.orderCustomerName}>{item.customerName}</Text>
-             <Text style={styles.orderPaymentInfo}>{item.paymentMethod?.toUpperCase()} - {item.totalAmount} TL</Text>
+            <Text style={styles.orderCustomerName}>{item.customerName}</Text>
+            <Text style={styles.orderPaymentInfo}>{item.paymentMethod?.toUpperCase()} - {item.totalAmount} TL</Text>
           </View>
-          
-          <View style={styles.orderCardBody}>
-             <Text style={styles.orderAddressText}>{item.deliveryAddress}</Text>
-          </View>
-          
-          <View style={styles.orderCardFooter}>
-             <TouchableOpacity style={styles.mapButtonFlex} onPress={() => openMaps(item)}>
-               <Text style={styles.mapButtonText}>YOL TARİFİ AL</Text>
-             </TouchableOpacity>
 
-             <TouchableOpacity 
-                style={styles.pavoButtonFlex} 
-                onPress={() => handlePavoPayment(item)}
-                onLongPress={() => completeOrderSimulation(item.id)}
-             >
-               <Text style={styles.pavoButtonText}>TAHSİLAT YAP</Text>
-             </TouchableOpacity>
+          <View style={styles.orderCardBody}>
+            <Text style={styles.orderAddressText}>{item.deliveryAddress}</Text>
+          </View>
+
+          <View style={styles.orderCardFooter}>
+            <TouchableOpacity style={styles.mapButtonFlex} onPress={() => openMaps(item)}>
+              <Text style={styles.mapButtonText}>YOL TARİFİ AL</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.pavoButtonFlex}
+              onPress={() => handlePavoPayment(item)}
+              onLongPress={() => completeOrderSimulation(item.id)}
+            >
+              <Text style={styles.pavoButtonText}>TAHSİLAT YAP</Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -388,7 +389,7 @@ export default function DashboardScreen({ navigation }: any) {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
-      
+
       {renderTopBar()}
 
       {/* Global Alerts */}
@@ -399,7 +400,7 @@ export default function DashboardScreen({ navigation }: any) {
       )}
       {isUpdating && (
         <View style={styles.globalAlertWarning}>
-          <ActivityIndicator size="small" color="#1A1A1A" style={{marginRight: 10}}/>
+          <ActivityIndicator size="small" color="#1A1A1A" style={{ marginRight: 10 }} />
           <Text style={styles.globalAlertTextDark}>İşlem Yapılıyor...</Text>
         </View>
       )}
@@ -424,7 +425,7 @@ const styles = StyleSheet.create({
   contextualContainer: {
     flex: 1,
   },
-  
+
   // ── Top Bar Özeti (Sabit ve Şık) ──
   topBar: {
     flexDirection: 'row',
@@ -489,7 +490,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     letterSpacing: 2,
   },
-  
+
   // ── Break Context Özel ──
   breakStatusBox: {
     marginBottom: 40,
@@ -551,7 +552,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   orderPaymentInfo: {
-    color: '#00E676', 
+    color: '#00E676',
     fontSize: 26,
     fontWeight: '900',
     letterSpacing: 1,
@@ -675,7 +676,7 @@ const styles = StyleSheet.create({
   pavoButtonFlex: {
     width: '100%',
     backgroundColor: '#FFC107',
-    paddingVertical: 32, 
+    paddingVertical: 32,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
