@@ -9,7 +9,13 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://www.kuzine.co/api"
+      }
     },
     "production": {
       "autoIncrement": true
