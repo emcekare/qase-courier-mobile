@@ -12,6 +12,7 @@ import {
   useWindowDimensions,
   ScrollView,
 } from 'react-native';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as SecureStore from 'expo-secure-store';
@@ -35,20 +36,23 @@ interface CourierSession {
   creditCardTotal: number;
 }
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL;
-const STATUS_API_URL = `${API_BASE}/courier/status`;
-const ORDERS_API_URL = `${API_BASE}/courier/orders`;
-const SESSION_API_URL = `${API_BASE}/courier/session/current`;
+const API_BASE = (process.env.EXPO_PUBLIC_API_URL || '').replace(/\/+$/, '');
+const STATUS_API_URL = `${API_BASE}/api/courier/status`;
+const ORDERS_API_URL = `${API_BASE}/api/courier/orders`;
+const SESSION_API_URL = `${API_BASE}/api/courier/session/current`;
 const TOKEN_KEY = 'jwt_token';
 
 export default function DashboardScreen({ navigation }: any) {
   const { width, height } = useWindowDimensions();
+  const { expoPushToken, notification } = usePushNotifications();
 
   // ── Statü State'leri ──
   const [currentStatus, setCurrentStatus] = useState<CourierStatus>(null);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
+  const [successMsg, setSuccessMsg] = useState<string>('');
   const [isWaitingInQueue, setIsWaitingInQueue] = useState<boolean>(false);
+  const [callingOrderId, setCallingOrderId] = useState<string | number | null>(null);
 
   // ── Özet / Session State'leri ──
   const [sessionData, setSessionData] = useState<CourierSession | null>(null);
@@ -70,17 +74,41 @@ export default function DashboardScreen({ navigation }: any) {
   // ── API İSTEKLERİ ──
   const fetchCurrentSession = useCallback(async () => {
     try {
-      const token = await SecureStore.getItemAsync(TOKEN_KEY);
-      if (!token) return;
+      const currentToken = await SecureStore.getItemAsync('jwt_token');
+      console.log("🚀 Sunucuya Gidecek Token (fetchCurrentSession):", currentToken);
+      
+      if (!currentToken) {
+        navigation.replace('Login');
+        return;
+      }
 
       const response = await fetch(SESSION_API_URL, {
         method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${currentToken.trim()}`,
+        },
       });
 
       if (response.ok) {
         const data = await response.json();
         setSessionData(data?.session || data || null);
+        
+        // --- State Senkronizasyonu (UI ve Backend) ---
+        if (data?.isActive) {
+          setCurrentStatus((prev) => {
+            // Eğer component yeni mount edildiyse (null) veya asenkronluktan off_duty kaldıysa 'on_duty' yap.
+            // on_break durumundaysa ezme.
+            if (prev === null || prev === 'off_duty') {
+              return 'on_duty';
+            }
+            return prev;
+          });
+        } else {
+          // Açık vardiya yoksa kesinlikle off_duty'dir.
+          setCurrentStatus('off_duty');
+        }
       }
     } catch {
       // Sessiz hata
@@ -90,12 +118,21 @@ export default function DashboardScreen({ navigation }: any) {
   const fetchOrders = useCallback(async () => {
     try {
       setError('');
-      const token = await SecureStore.getItemAsync(TOKEN_KEY);
-      if (!token) return;
+      const currentToken = await SecureStore.getItemAsync('jwt_token');
+      console.log("🚀 Sunucuya Gidecek Token (fetchOrders):", currentToken);
+      
+      if (!currentToken) {
+        navigation.replace('Login');
+        return;
+      }
 
       const response = await fetch(ORDERS_API_URL, {
         method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${currentToken.trim()}`,
+        },
       });
 
       if (!response.ok) {
@@ -120,20 +157,47 @@ export default function DashboardScreen({ navigation }: any) {
     setError('');
 
     try {
-      const token = await SecureStore.getItemAsync(TOKEN_KEY);
-      if (!token) throw new Error('Oturum bulunamadı. Lütfen tekrar giriş yapın.');
+      // İsteği atmadan hemen önce token'ı asenkron okuma
+      const currentToken = await SecureStore.getItemAsync('jwt_token');
+      console.log("🚀 Sunucuya Gidecek Token (updateStatus):", currentToken);
+      
+      // Token null veya undefined ise zorla Login'e at
+      if (!currentToken) {
+        Alert.alert('Oturum Düştü', 'Oturum bilginiz bulunamadı. Lütfen tekrar giriş yapın.');
+        navigation.replace('Login');
+        setIsUpdating(false);
+        return;
+      }
 
       const response = await fetch(STATUS_API_URL, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${currentToken.trim()}`, // Kesin olarak Bearer <token>
         },
         body: JSON.stringify({ status: newStatus }),
       });
 
       if (!response.ok) {
-        throw new Error('Durum güncellenirken hata oluştu.');
+        // Token backend tarafından geçersiz bulunursa (401)
+        if (response.status === 401) {
+          await SecureStore.deleteItemAsync(TOKEN_KEY);
+          Alert.alert('Yetki Reddedildi', 'Oturum süreniz dolmuş veya geçersiz. Lütfen tekrar giriş yapın.');
+          navigation.replace('Login');
+          setIsUpdating(false);
+          return;
+        }
+
+        let backendErrorMsg = 'Durum güncellenirken hata oluştu.';
+        try {
+          const errorData = await response.json();
+          backendErrorMsg = errorData.message || errorData.error || JSON.stringify(errorData);
+        } catch (_) {
+          const errorText = await response.text();
+          if (errorText) backendErrorMsg = errorText;
+        }
+        
+        throw new Error(`[HTTP ${response.status}] ${backendErrorMsg}`);
       }
 
       setCurrentStatus(newStatus);
@@ -147,6 +211,7 @@ export default function DashboardScreen({ navigation }: any) {
       }
 
     } catch (err: any) {
+      console.error('[updateStatus] Hata Detayı:', err);
       setError(err.message || 'Bağlantı hatası.');
     } finally {
       setIsUpdating(false);
@@ -158,14 +223,20 @@ export default function DashboardScreen({ navigation }: any) {
     setError('');
 
     try {
-      const token = await SecureStore.getItemAsync(TOKEN_KEY);
-      if (!token) throw new Error('Oturum bulunamadı. Lütfen tekrar giriş yapın.');
+      const currentToken = await SecureStore.getItemAsync('jwt_token');
+      console.log("🚀 Sunucuya Gidecek Token (handleBackToShop):", currentToken);
+      
+      if (!currentToken) {
+        navigation.replace('Login');
+        throw new Error('Oturum bulunamadı. Lütfen tekrar giriş yapın.');
+      }
 
       const response = await fetch(STATUS_API_URL, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${currentToken.trim()}`,
         },
         body: JSON.stringify({ status: currentStatus, isBackToShop: true }),
       });
@@ -186,12 +257,23 @@ export default function DashboardScreen({ navigation }: any) {
   const completeOrderSimulation = async (orderId: string | number) => {
     setIsUpdating(true);
     try {
-      const token = await SecureStore.getItemAsync(TOKEN_KEY);
-      const url = `${process.env.EXPO_PUBLIC_API_URL}/courier/orders/${orderId}/complete`;
+      const currentToken = await SecureStore.getItemAsync('jwt_token');
+      console.log("🚀 Sunucuya Gidecek Token (completeOrderSimulation):", currentToken);
+      
+      if (!currentToken) {
+        navigation.replace('Login');
+        return;
+      }
+      
+      const url = `${process.env.EXPO_PUBLIC_API_URL}/api/courier/orders/${orderId}/complete`;
 
       const response = await fetch(url, {
         method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${currentToken.trim()}`,
+        }
       });
 
       if (response.ok) {
@@ -215,6 +297,42 @@ export default function DashboardScreen({ navigation }: any) {
       setOrders([]);
     }
   }, [currentStatus, fetchOrders, fetchCurrentSession]);
+
+  // ── PUSH NOTIFICATION EFFECTS ──
+  useEffect(() => {
+    const sendPushToken = async () => {
+      if (!expoPushToken?.data) return;
+      try {
+        const currentToken = await SecureStore.getItemAsync(TOKEN_KEY);
+        if (!currentToken) return;
+
+        const response = await fetch(`${API_BASE}/api/courier/push-token`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentToken.trim()}`,
+          },
+          body: JSON.stringify({ pushToken: expoPushToken.data }),
+        });
+        if (response.ok) {
+          console.log("🚀 Push Token başarıyla gönderildi.");
+        }
+      } catch (e) {
+        console.error("Push token gönderilemedi", e);
+      }
+    };
+    sendPushToken();
+  }, [expoPushToken]);
+
+  useEffect(() => {
+    if (notification) {
+      console.log('Background/Foreground Push geldi, siparişleri sessizce yeniliyoruz...');
+      fetchCurrentSession();
+      if (currentStatus === 'on_duty') {
+        fetchOrders();
+      }
+    }
+  }, [notification]);
 
   const onRefresh = async () => {
     setIsRefreshing(true);
@@ -249,6 +367,48 @@ export default function DashboardScreen({ navigation }: any) {
       ]);
     } catch (e) {
       Alert.alert('Hata', 'Pavo başlatılamadı.');
+    }
+  };
+
+  const handleCallCustomer = async (orderId: string | number) => {
+    if (callingOrderId) return;
+    setCallingOrderId(orderId);
+    setError('');
+    setSuccessMsg('');
+
+    try {
+      const currentToken = await SecureStore.getItemAsync('jwt_token');
+      console.log("🚀 Sunucuya Gidecek Token (handleCallCustomer):", currentToken);
+      
+      if (!currentToken) {
+        navigation.replace('Login');
+        throw new Error('Oturum bulunamadı.');
+      }
+
+      const url = `${process.env.EXPO_PUBLIC_API_URL}/api/logistics/call-customer`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${currentToken.trim()}`
+        },
+        body: JSON.stringify({ orderId })
+      });
+
+      if (response.ok) {
+        setSuccessMsg('Santral üzerinden çağrı başlatıldı. Lütfen gelen aramayı yanıtlayın.');
+        setTimeout(() => setSuccessMsg(''), 5000);
+      } else {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.message || 'Çağrı başlatılamadı.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Arama işlemi başarısız oldu.');
+      setTimeout(() => setError(''), 5000);
+    } finally {
+      setCallingOrderId(null);
     }
   };
 
@@ -369,6 +529,16 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
 
           <View style={styles.orderCardFooter}>
+            <TouchableOpacity 
+              style={[styles.callButtonFlex, callingOrderId === item.id && styles.disabledButton]} 
+              onPress={() => handleCallCustomer(item.id)}
+              disabled={callingOrderId === item.id}
+            >
+              <Text style={styles.callButtonText}>
+                {callingOrderId === item.id ? '📞 ARANIYOR...' : '📞 MÜŞTERİYİ ARA'}
+              </Text>
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.mapButtonFlex} onPress={() => openMaps(item)}>
               <Text style={styles.mapButtonText}>YOL TARİFİ AL</Text>
             </TouchableOpacity>
@@ -396,6 +566,11 @@ export default function DashboardScreen({ navigation }: any) {
       {error !== '' && (
         <View style={styles.globalAlert}>
           <Text style={styles.globalAlertText}>{error}</Text>
+        </View>
+      )}
+      {successMsg !== '' && (
+        <View style={[styles.globalAlert, styles.successAlert]}>
+          <Text style={styles.globalAlertText}>{successMsg}</Text>
         </View>
       )}
       {isUpdating && (
@@ -463,6 +638,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   globalAlertText: { color: '#FFF', fontWeight: 'bold' },
+  successAlert: { backgroundColor: '#388E3C' },
   globalAlertWarning: {
     backgroundColor: '#FFC107',
     padding: 10,
@@ -655,6 +831,27 @@ const styles = StyleSheet.create({
   },
 
   // ── Sipariş Kartı Aksiyon Butonları ──
+  callButtonFlex: {
+    width: '100%',
+    backgroundColor: '#4CAF50',
+    paddingVertical: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#388E3C',
+    elevation: 4,
+  },
+  callButtonText: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '900',
+    letterSpacing: 2,
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
   mapButtonFlex: {
     width: '100%',
     backgroundColor: '#1565C0',

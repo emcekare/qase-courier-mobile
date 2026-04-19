@@ -13,7 +13,8 @@ import { StatusBar } from 'expo-status-bar';
 import * as SecureStore from 'expo-secure-store';
 
 // ─── Sabitler ────────────────────────────────────────────────────
-const API_URL = `${process.env.EXPO_PUBLIC_API_URL}/courier/login`;
+const apiUrlBase = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
+const API_URL = `${apiUrlBase}/api/courier/login`;
 const TOKEN_KEY = 'jwt_token';
 
 // ─── Login Ekranı ────────────────────────────────────────────────
