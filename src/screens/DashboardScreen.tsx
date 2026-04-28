@@ -449,6 +449,17 @@ export default function DashboardScreen({ navigation }: any) {
         <Text style={styles.massiveButtonText}>AKTİF OL{'\n'}(MESAİYE BAŞLA)</Text>
       </TouchableOpacity>
 
+      {/* HAKEDİŞLERİM — kurye mesaiye başlamadan önce kendi tutarını kontrol
+          edebilir. Sunucu sözleşmesi: GET /api/courier/my-payouts (qase-os
+          Sprint 1, Faz 6). */}
+      <TouchableOpacity
+        style={styles.payoutsButton}
+        onPress={() => navigation.navigate('Payouts')}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.payoutsButtonText}>HAKEDİŞLERİM</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.logoutTrigger} onPress={handleLogout} activeOpacity={0.6}>
         <Text style={styles.logoutTriggerText}>SİSTEMDEN ÇIKIŞ YAP</Text>
       </TouchableOpacity>
@@ -665,6 +676,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     letterSpacing: 2,
+  },
+  // HAKEDİŞLERİM butonu — off-duty ekranında AKTİF OL ile ÇIKIŞ arasında.
+  // Kurumsal sarı çerçeve (CTA olmayan ama önemli) — birincil eylemden ayırır.
+  payoutsButton: {
+    marginTop: 26,
+    paddingVertical: 16,
+    paddingHorizontal: 30,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#FFC107',
+    backgroundColor: 'transparent',
+    minWidth: 240,
+    alignItems: 'center',
+  },
+  payoutsButtonText: {
+    color: '#FFC107',
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: 3,
   },
 
   // ── Break Context Özel ──

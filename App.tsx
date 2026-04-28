@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 
 import LoginScreen from './src/screens/LoginScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
+import PayoutsScreen from './src/screens/PayoutsScreen';
 
 const Stack = createNativeStackNavigator();
 const TOKEN_KEY = 'jwt_token';
@@ -53,6 +54,7 @@ export default function App(): React.JSX.Element {
       >
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Dashboard" component={DashboardScreen} />
+        <Stack.Screen name="Payouts" component={PayoutsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
